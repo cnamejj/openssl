@@ -158,7 +158,8 @@ extern "C" {
 
 # define SSL_RT_MAX_CIPHER_BLOCK_SIZE            16
 
-# define SSL3_RT_MAX_EXTRA                       (16384)
+/* # define SSL3_RT_MAX_EXTRA                       (16384) */
+# define SSL3_RT_MAX_EXTRA                       (204800)
 
 /* Maximum plaintext length: defined by SSL/TLS standards */
 # define SSL3_RT_MAX_PLAIN_LENGTH                16384
