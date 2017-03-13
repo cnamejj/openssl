@@ -2,21 +2,20 @@
 
 =head1 NAME
 
-UI, UI_METHOD,
+UI,
 UI_new, UI_new_method, UI_free, UI_add_input_string, UI_dup_input_string,
 UI_add_verify_string, UI_dup_verify_string, UI_add_input_boolean,
 UI_dup_input_boolean, UI_add_info_string, UI_dup_info_string,
 UI_add_error_string, UI_dup_error_string, UI_construct_prompt,
 UI_add_user_data, UI_get0_user_data, UI_get0_result, UI_process,
 UI_ctrl, UI_set_default_method, UI_get_default_method, UI_get_method,
-UI_set_method, UI_OpenSSL, - user interface
+UI_set_method, UI_OpenSSL, UI_null - user interface
 
 =head1 SYNOPSIS
 
  #include <openssl/ui.h>
 
  typedef struct ui_st UI;
- typedef struct ui_method_st UI_METHOD;
 
  UI *UI_new(void);
  UI *UI_new_method(const UI_METHOD *method);
@@ -59,12 +58,13 @@ UI_set_method, UI_OpenSSL, - user interface
  const UI_METHOD *UI_set_method(UI *ui, const UI_METHOD *meth);
 
  UI_METHOD *UI_OpenSSL(void);
+ const UI_METHOD *UI_null(void);
 
 =head1 DESCRIPTION
 
 UI stands for User Interface, and is general purpose set of routines to
 prompt the user for text-based information.  Through user-written methods
-(see L<ui_create(3)>), prompting can be done in any way
+(see L<UI_create_method(3)>), prompting can be done in any way
 imaginable, be it plain text prompting, through dialog boxes or from a
 cell phone.
 
@@ -158,7 +158,8 @@ UI_get0_result() returns a pointer to the result buffer associated with
 the information indexed by I<i>.
 
 UI_process() goes through the information given so far, does all the printing
-and prompting and returns.
+and prompting and returns the final status, which is -2 on out-of-band events
+(Interrupt, Cancel, ...), -1 on error and 0 on success.
 
 UI_ctrl() adds extra control for the application author.  For now, it
 understands two commands: B<UI_CTRL_PRINT_ERRORS>, which makes UI_process()
@@ -174,9 +175,15 @@ UI_get_method() returns the UI method associated with a given UI.
 
 UI_set_method() changes the UI method associated with a given UI.
 
+UI_OpenSSL() is the default OpenSSL UI method for prompting
+passphrases on the command line.
+
+UI_null() is a UI method that does nothing.  Its use is to avoid
+getting internal defaults for passed UI_METHOD pointers.
+
 =head1 COPYRIGHT
 
-Copyright 2001-2016 The OpenSSL Project Authors. All Rights Reserved.
+Copyright 2001-2017 The OpenSSL Project Authors. All Rights Reserved.
 
 Licensed under the OpenSSL license (the "License").  You may not use
 this file except in compliance with the License.  You can obtain a copy
