@@ -291,7 +291,6 @@ int enc_main(int argc, char **argv)
     buff = app_malloc(EVP_ENCODE_LENGTH(bsize), "evp buffer");
 
     if (infile == NULL) {
-        unbuffer(stdin);
         in = dup_bio_in(informat);
     } else
         in = bio_open_default(infile, 'r', informat);
@@ -548,8 +547,8 @@ int enc_main(int argc, char **argv)
 
     ret = 0;
     if (verbose) {
-        BIO_printf(bio_err, "bytes read   :%8"PRIu64"\n", BIO_number_read(in));
-        BIO_printf(bio_err, "bytes written:%8"PRIu64"\n", BIO_number_written(out));
+        BIO_printf(bio_err, "bytes read   :%8"BIO_PRI64"u\n", BIO_number_read(in));
+        BIO_printf(bio_err, "bytes written:%8"BIO_PRI64"u\n", BIO_number_written(out));
     }
  end:
     ERR_print_errors(bio_err);

@@ -48,6 +48,10 @@
 use lib ".";
 use configdata;
 use File::Spec::Functions;
+use File::Basename;
+use FindBin;
+use lib "$FindBin::Bin/perl";
+use OpenSSL::Glob;
 
 my $debug=0;
 
@@ -66,6 +70,7 @@ my $do_checkexist = 0;
 my $VMS=0;
 my $W32=0;
 my $NT=0;
+my $UNIX=0;
 my $linux=0;
 # Set this to make typesafe STACK definitions appear in DEF
 my $safe_stack_def = 0;
@@ -73,7 +78,7 @@ my $safe_stack_def = 0;
 my @known_platforms = ( "__FreeBSD__", "PERL5",
 			"EXPORT_VAR_AS_FUNCTION", "ZLIB", "_WIN32"
 			);
-my @known_ossl_platforms = ( "VMS", "WIN32", "WINNT", "OS2" );
+my @known_ossl_platforms = ( "UNIX", "VMS", "WIN32", "WINNT", "OS2" );
 my @known_algorithms = ( "RC2", "RC4", "RC5", "IDEA", "DES", "BF",
 			 "CAST", "MD2", "MD4", "MD5", "SHA", "SHA0", "SHA1",
 			 "SHA256", "SHA512", "RMD160",
@@ -153,6 +158,7 @@ foreach (@ARGV, split(/ /, $config{options}))
 	}
 	if ($_ eq "linux") {
 		$linux=1;
+		$UNIX=1;
 	}
 	$VMS=1 if $_ eq "VMS";
 	if ($_ eq "zlib" || $_ eq "enable-zlib" || $_ eq "zlib-dynamic"
@@ -238,6 +244,7 @@ my $crypto ="include/openssl/crypto.h";
 $crypto.=" include/internal/o_dir.h";
 $crypto.=" include/internal/o_str.h";
 $crypto.=" include/internal/err.h";
+$crypto.=" include/internal/asn1t.h";
 $crypto.=" include/openssl/des.h" ; # unless $no_des;
 $crypto.=" include/openssl/idea.h" ; # unless $no_idea;
 $crypto.=" include/openssl/rc4.h" ; # unless $no_rc4;
@@ -455,10 +462,10 @@ sub do_defs
 
 		print STDERR "DEBUG: parsing ----------\n" if $debug;
 		while(<IN>) {
+			s|\R$||; # Better chomp
 			if($parens > 0) {
 				#Inside a DEPRECATEDIN
 				$stored_multiline .= $_;
-				$stored_multiline =~ s|\R$||; # Better chomp
 				print STDERR "DEBUG: Continuing multiline DEPRECATEDIN: $stored_multiline\n" if $debug;
 				$parens = count_parens($stored_multiline);
 				if ($parens == 0) {
@@ -872,7 +879,6 @@ sub do_defs
 							\@current_algorithms);
 					} else {
 						$stored_multiline = $_;
-						$stored_multiline =~ s|\R$||;
 						print STDERR "DEBUG: Found multiline DEPRECATEDIN starting with: $stored_multiline\n" if $debug;
 						next;
 					}
@@ -1094,6 +1100,7 @@ sub is_valid
 
 		if ($platforms) {
 			# platforms
+			if ($keyword eq "UNIX" && $UNIX) { return 1; }
 			if ($keyword eq "VMS" && $VMS) { return 1; }
 			if ($keyword eq "WIN32" && $W32) { return 1; }
 			if ($keyword eq "_WIN32" && $W32) { return 1; }
@@ -1240,7 +1247,6 @@ EOF
 					if(!$do_update);
 			} else {
 				(my $n, my $symversion, my $dummy) = split /\\/, $nums{$s};
-				next if $symversion ne $thisversion;
 				my %pf = ();
 				my $p = ($i =~ /^[^:]*:([^:]*):/,$1);
 				my $a = ($i =~ /^[^:]*:[^:]*:[^:]*:([^:]*)/,$1);
@@ -1253,6 +1259,7 @@ EOF
 					}
 					$prev = $s2;	# To warn about duplicates...
 					if($linux) {
+						next if $symversion ne $thisversion;
 						if ($symversion ne $prevsymversion) {
 							if ($prevsymversion ne "") {
 								if ($prevprevsymversion ne "") {
@@ -1308,7 +1315,7 @@ EOF
 				}
 			}
 		}
-	} while ($thisversion ne $currversion);
+	} while ($linux && $thisversion ne $currversion);
 	if ($linux) {
 		if ($prevprevsymversion ne "") {
 			print OUT "    local: *;\n} OPENSSL_$prevprevsymversion;\n\n";

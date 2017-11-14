@@ -9,12 +9,14 @@
 
 ##  Configure -- OpenSSL source tree configuration script
 
-require 5.10.0;
+use 5.10.0;
 use strict;
+use FindBin;
+use lib "$FindBin::Bin/util/perl";
 use File::Basename;
 use File::Spec::Functions qw/:DEFAULT abs2rel rel2abs/;
 use File::Path qw/mkpath/;
-use if $^O ne "VMS", 'File::Glob' => qw/glob/;
+use OpenSSL::Glob;
 
 # see INSTALL for instructions.
 
@@ -60,8 +62,7 @@ my $usage="Usage: Configure [no-<cipher> ...] [enable-<cipher> ...] [-Dxxx] [-lx
 #		library and will be loaded in run-time by the OpenSSL library.
 # sctp          include SCTP support
 # enable-weak-ssl-ciphers
-#               Enable weak ciphers that are disabled by default. This currently
-#               only includes RC4 based ciphers.
+#               Enable weak ciphers that are disabled by default.
 # 386           generate 80386 code in assembly modules
 # no-sse2       disables IA-32 SSE2 code in assembly modules, the above
 #               mentioned '386' option implies this one
@@ -116,6 +117,9 @@ my $gcc_devteam_warn = "-DDEBUG_UNUSED"
         # but 'long long' type.
         . " -DPEDANTIC -pedantic -Wno-long-long"
         . " -Wall"
+        . " -Wextra"
+        . " -Wno-unused-parameter"
+        . " -Wno-missing-field-initializers"
         . " -Wsign-compare"
         . " -Wmissing-prototypes"
         . " -Wshadow"
@@ -136,15 +140,11 @@ my $gcc_devteam_warn = "-DDEBUG_UNUSED"
 #       -Wextended-offsetof -- no, needed in CMS ASN1 code
 my $clang_devteam_warn = ""
         . " -Qunused-arguments"
-        . " -Wextra"
-        . " -Wno-unused-parameter"
-        . " -Wno-missing-field-initializers"
         . " -Wno-language-extension-token"
         . " -Wno-extended-offsetof"
         . " -Wconditional-uninitialized"
         . " -Wincompatible-pointer-types-discards-qualifiers"
         . " -Wmissing-variable-declarations"
-        . " -Wundef"
         ;
 
 # This adds backtrace information to the memory leak info.  Is only used
@@ -461,30 +461,9 @@ my @disable_cascades = (
     sub { 0 == scalar grep { !$disabled{$_} } @dtls }
 			=> [ "dtls" ],
 
-    # SSL 3.0, (D)TLS 1.0 and TLS 1.1 require MD5 and SHA
-    "md5"		=> [ "ssl", "tls1", "tls1_1", "dtls1" ],
-    "sha"		=> [ "ssl", "tls1", "tls1_1", "dtls1" ],
-
-    # Additionally, SSL 3.0 requires either RSA or DSA+DH
-    sub { $disabled{rsa}
-	  && ($disabled{dsa} || $disabled{dh}); }
-			=> [ "ssl" ],
-
-    # (D)TLS 1.0 and TLS 1.1 also require either RSA or DSA+DH
-    # or ECDSA + ECDH.  (D)TLS 1.2 has this requirement as well.
-    # (XXX: We don't support PSK-only builds).
-    sub { $disabled{rsa}
-	  && ($disabled{dsa} || $disabled{dh})
-	  && ($disabled{ecdsa} || $disabled{ecdh}); }
-			=> [ "tls1", "tls1_1", "tls1_2",
-			     "dtls1", "dtls1_2" ],
-
     "tls"		=> [ @tls ],
     sub { 0 == scalar grep { !$disabled{$_} } @tls }
 			=> [ "tls" ],
-
-    # SRP and HEARTBEATS require TLSEXT
-    "tlsext"		=> [ "srp", "heartbeats" ],
 
     "crypto-mdebug"     => [ "crypto-mdebug-backtrace" ],
 
@@ -499,7 +478,7 @@ my @disable_cascades = (
     # no-autoalginit is only useful when building non-shared
     "autoalginit"       => [ "shared", "apps" ],
 
-    "stdio"             => [ "apps", "capieng" ],
+    "stdio"             => [ "apps", "capieng", "egd" ],
     "apps"              => [ "tests" ],
     "comp"		=> [ "zlib" ],
     sub { !$disabled{"unit-test"} } => [ "heartbeats" ],
@@ -1225,29 +1204,29 @@ unless ($disabled{asm}) {
     }
 }
 
-my $ecc = $target{cc};
-if ($^O ne "VMS" && !$disabled{makedepend}) {
-    # Is the compiler gcc or clang?  $ecc is used below to see if
-    # error-checking can be turned on.
-    my $ccpcc = "$config{cross_compile_prefix}$target{cc}";
-    open(PIPE, "$ccpcc --version 2>&1 |");
-    my $lines = 2;
-    while ( <PIPE> ) {
-        # Find the version number and save the major.
-        m|(?:.*)\b(\d+)\.\d+\.\d+\b(?:.*)|;
-        my $compiler_major = $1;
-        # We know that GNU C version 3 and up as well as all clang
-        # versions support dependency generation
-        $config{makedepprog} = $ccpcc
-            if (/clang/ || (/gcc/ && $compiler_major >= 3));
-        $ecc = "clang" if /clang/;
-        $ecc = "gcc" if /gcc/;
-        last if ($config{makedepprog} || !$lines--);
+my %predefined;
+
+if ($^O ne "VMS") {
+    my $cc = "$config{cross_compile_prefix}$target{cc}";
+
+    # collect compiler pre-defines from gcc or gcc-alike...
+    open(PIPE, "$cc -dM -E -x c /dev/null 2>&1 |");
+    while (<PIPE>) {
+	m/^#define\s+(\w+(?:\(\w+\))?)(?:\s+(.+))?/ or last;
+	$predefined{$1} = $2 // "";
     }
     close(PIPE);
 
-    $config{makedepprog} = which('makedepend') unless $config{makedepprog};
-    $disabled{makedepend} = "unavailable" unless $config{makedepprog};
+    if (!$disabled{makedepend}) {
+	# We know that GNU C version 3 and up as well as all clang
+	# versions support dependency generation
+	if ($predefined{__GNUC__} >= 3) {
+	    $config{makedepprog} = $cc;
+	} else {
+	    $config{makedepprog} = which('makedepend');
+	    $disabled{makedepend} = "unavailable" unless $config{makedepprog};
+	}
+    }
 }
 
 
@@ -1292,13 +1271,13 @@ if (defined($config{api})) {
 if ($strict_warnings)
 	{
 	my $wopt;
-	die "ERROR --strict-warnings requires gcc or clang"
-            unless $ecc eq 'gcc' || $ecc eq 'clang';
+	die "ERROR --strict-warnings requires gcc or gcc-alike"
+            unless defined($predefined{__GNUC__});
 	foreach $wopt (split /\s+/, $gcc_devteam_warn)
 		{
 		$config{cflags} .= " $wopt" unless ($config{cflags} =~ /(?:^|\s)$wopt(?:\s|$)/)
 		}
-	if ($ecc eq "clang")
+	if (defined($predefined{__clang__}))
 		{
 		foreach $wopt (split /\s+/, $clang_devteam_warn)
 			{
@@ -1355,7 +1334,6 @@ my %unified_info = ();
 
 my $buildinfo_debug = defined($ENV{CONFIGURE_DEBUG_BUILDINFO});
 if ($builder eq "unified") {
-    use lib catdir(dirname(__FILE__),"util");
     use with_fallback qw(Text::Template);
 
     sub cleandir {
@@ -1479,8 +1457,10 @@ if ($builder eq "unified") {
         my %generate = ();
 
         push @{$config{build_infos}}, catfile(abs2rel($sourced, $blddir), $f);
-        my $template = Text::Template->new(TYPE => 'FILE',
-                                           SOURCE => catfile($sourced, $f));
+        my $template =
+            Text::Template->new(TYPE => 'FILE',
+                                SOURCE => catfile($sourced, $f),
+                                PREPEND => qq{use lib "$FindBin::Bin/util/perl";});
         die "Something went wrong with $sourced/$f: $!\n" unless $template;
         my @text =
             split /^/m,
@@ -2609,7 +2589,7 @@ sub isabsolute {
     # On non-platforms, we just use file_name_is_absolute().
     return file_name_is_absolute($file) unless $^O eq "VMS";
 
-    # If the file spec includes a device or a directpry spec,
+    # If the file spec includes a device or a directory spec,
     # file_name_is_absolute() is perfectly safe.
     return file_name_is_absolute($file) if $file =~ m|[:\[]|;
 
